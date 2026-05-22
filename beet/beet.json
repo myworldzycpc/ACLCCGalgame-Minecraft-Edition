@@ -1,8 +1,8 @@
 {
-  "name": "Steve Is Move",
+  "name": "aclccgalgame",
   "description": "Learning beet!",
   "data_pack": {
-    "name": "steve-is-move-datapack",
+    "name": "aclccgalgame-datapack",
     "load": [
       "src"
     ]

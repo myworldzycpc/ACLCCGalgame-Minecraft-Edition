@@ -71,6 +71,16 @@ macro tppos selector=minecraft:entity pos=brigadier:string{"type": "greedy"}:
     else:
         raise ValueError("Invalid position format")
 
+macro atpos pos=brigadier:string{"type": "greedy"} body=mecha:nested_root:
+    pos = pos.value.split()
+    if len(pos) == 3:
+        positioned pos[0] pos[1] pos[2]: 
+            yield body
+    elif len(pos) == 5:
+        positioned pos[0] pos[1] pos[2] rotated pos[3] pos[4]: 
+            yield body
+
+
 macro show_floating_dialog character_id=brigadier:string{"type": "word"} content=brigadier:string{"type": "greedy"}:
     as @n[tag=character,tag=character_id.value] at @s:
         say f"[floating_dialog] {content.value[0]}"
@@ -98,6 +108,13 @@ def make_selector(var="n", **kwargs):
             ))
     return AstSelector(variable=var, arguments=args)
 
+# def gen_multi_tag(tags: str | list[str]):
+#     if isinstance(tags, str):
+#         tags = tags.split(".")
+#     result = [tags[0]]
+#     for tag in tags[1:]:
+#         result.append(f"{result[-1]}.{tag}")
+
 def init_rpg():
     scb_obj_add current_phase last_action_time
 
@@ -120,17 +137,23 @@ def init_rpg():
                     parent: (./trigger/root)
                 function trigger_id:
                     say f"Hello {character['name']}"
-                unless entity make_selector(tag=character_tag):
-                    summon mannequin ~ ~ ~:
-                        CustomName: character['name']
-                        CustomNameVisible: True
-                        Tags: character_tag
                 pos = character.get('pos', None)
                 if not pos:
                     pos = rpg_data['global_config']['default_pos'].split()
                     pos[0] = str(float(pos[0]) + character_index * 2)
                     pos = " ".join(pos)
-                tppos make_selector(tag=character_tag) pos
+                atpos pos:
+                    unless entity make_selector(tag=character_tag,type="mannequin"):
+                        summon mannequin ~ ~ ~:
+                            CustomName: character['name']
+                            CustomNameVisible: True
+                            Tags: character_tag
+                            immovable: True
+                    unless entity make_selector(tag=character_tag,type="interaction"):
+                        summon interaction ~ ~ ~:
+                            Tags: character_tag
+                            height: 1.81
+                            width: 0.61
             DEFINITIONS = {}
             for dialog_index, dialog in enumerate(rpg_data["dialogs"]):
                 function ~/dialog/{dialog_index}:
