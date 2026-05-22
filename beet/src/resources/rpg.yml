@@ -1,0 +1,44 @@
+global_config:
+  default_pos: 38.5 -60.0 13.5 0 0
+
+scenes:
+  - name: intro
+    pos: 0 0 0 0 0
+
+characters:
+  - id: lfbgsy
+    name: 凌风白给施炎
+    pos: 6.08 -60.00 23.97 -24.75 6.00
+  - id: yoosee
+    name: 祐荽
+  - id: xlj
+    name: 小绿君
+
+dialogs:
+  - label: intro
+  - define: { l: lfbgsy, r: yoosee, m: xlj }
+  - l: 这是哪里？
+  - r: 这是ACLCC群。请问您有什么问题？
+  - m: [comment, 其实这是OCLCC（指正]
+  - l: 话说小绿君你怎么成群主了？
+  - 这是旁白。
+  - m: 请选择选项
+    options:
+      - 选项A: option_a
+      - 选项B: option_b
+      - 选项C: option_c
+  - label: option_a
+  - 你选择了A。
+  - goto: next
+  - label: option_b
+  - 你选择了B。
+  - goto: next
+  - label: option_c
+  - 你选择了C。
+  - goto: next
+  - label: next
+  - sound: music.credits
+  - l: 那我们就先聊聊天吧。
+  - r: 好的，请问您有什么问题？
+  - stopsound
+  - m: 我想问一下，ACLCC群是什么？

@@ -1,0 +1,6 @@
+__pycache__
+.beet_cache
+.venv
+.vscode
+/build
+/test

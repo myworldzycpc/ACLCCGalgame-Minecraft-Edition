@@ -1,0 +1,5 @@
+*.dat_old
+session.lock
+/syncmatica
+/datapacks
+.vscode

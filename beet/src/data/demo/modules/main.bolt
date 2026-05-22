@@ -1,0 +1,162 @@
+import yaml
+from mecha import AstSelector, AstSelectorArgument, AstString
+
+DIRECTIONS = ["left", "right", "forward", "backward"]
+ACTIONS = ["jump", "sneak", "sprint"]
+DIR_MAP = {forward: (0, 1, 0), backward: (0, -1, 180), left: (1, 0, -90), right: (-1, 0, 90)}
+
+SCOREBOARDS = set()
+
+DEBUG = True
+
+macro debug_say message=brigadier:string{"type": "greedy"}:
+    if DEBUG:
+        say f"[DEBUG] {message.value}"
+
+macro scb_obj_add scb=brigadier:string{"type": "greedy"}:
+    for i in scb.value.split():
+        SCOREBOARDS.add(i)
+
+with open("src/resources/rpg.yml", 'r', encoding='utf-8') as f:
+    rpg_data = yaml.safe_load(f)
+
+for i in DIRECTIONS + ACTIONS:
+    predicate (./input + "/" + i):
+        condition: "entity_properties"
+        entity: "this"
+        predicate:
+            type_specific:
+                type: "player"
+                input: ({i: True})
+
+function_tag tick: 
+    values: 
+        - (./tick)
+
+function_tag load:
+    values:
+        - (./init)
+
+PHASE_LIST = []
+ACTION_LIST = []
+LABELS = {}
+
+def init_scoreboards():
+    prepend function ./init:
+        execute function ~/scoreboards:
+            for i in SCOREBOARDS:
+                scoreboard objectives add i dummy
+
+
+def init_move_you():
+    append function ./tick:
+        execute function ~/move_you:
+            as @a:
+                for i in DIRECTIONS:
+                    if predicate (./input + "/" + i):
+                        # say i
+                        as @e[tag=you] at @s:
+                            dx = 0.2 * DIR_MAP[i][0]
+                            dz = 0.2 * DIR_MAP[i][1]
+                            tp ~dx ~ ~dz
+                            unless entity @s[tag=no_rotate]:
+                                rotate @s ~DIR_MAP[i][2] ~
+
+macro tppos selector=minecraft:entity pos=brigadier:string{"type": "greedy"}:
+    pos = pos.value.split()
+    if len(pos) == 3:
+        tp selector pos[0] pos[1] pos[2]
+    elif len(pos) == 5:
+        tp selector pos[0] pos[1] pos[2] pos[3] pos[4]
+    else:
+        raise ValueError("Invalid position format")
+
+macro show_floating_dialog character_id=brigadier:string{"type": "word"} content=brigadier:string{"type": "greedy"}:
+    as @n[tag=character,tag=character_id.value] at @s:
+        say f"[floating_dialog] {content.value[0]}"
+        summon block_display ^ ^ ^1:
+            block_state: {Name: "tinted_glass"}
+            Tags: ["floating_dialog", "background", character_id.value]
+        summon text_display ^ ^ ^1.5:
+            text: {translate: content}
+            Tags: ["floating_dialog", "text", character_id.value]
+
+macro narration text=brigadier:string{"type": "greedy"}:
+    say f"[narration] {text.value}"
+
+def make_selector(var="n", **kwargs):
+    args = []
+    for key, values in kwargs.items():
+        if isinstance(values, list):
+            for v in values:
+                args.append(AstSelectorArgument(
+                    key=AstString(value=key), value=AstString(value=v)
+                ))
+        else:
+            args.append(AstSelectorArgument(
+                key=AstString(value=key), value=AstString(value=values)
+            ))
+    return AstSelector(variable=var, arguments=args)
+
+def init_rpg():
+    scb_obj_add current_phase last_action_time
+
+    append function ./init:
+        execute function ~/rpg:
+            # data modify storage sim:global time_whell set value ([[]] * 256)
+            for character_index, character in enumerate(rpg_data["characters"]):
+                character_tag = ["character", character['id']]
+                trigger_id = ./trigger/player_interacted_with_entity/character + "/" + character['id']
+                advancement trigger_id:
+                    criteria:
+                        player_interacted_with_entity:
+                            trigger: "player_interacted_with_entity"
+                            conditions:
+                                entity:
+                                    nbt:
+                                        Tags: character_tag
+                    rewards:
+                        function: trigger_id
+                    parent: (./trigger/root)
+                function trigger_id:
+                    say f"Hello {character['name']}"
+                unless entity make_selector(tag=character_tag):
+                    summon mannequin ~ ~ ~:
+                        CustomName: character['name']
+                        CustomNameVisible: True
+                        Tags: character_tag
+                pos = character.get('pos', None)
+                if not pos:
+                    pos = rpg_data['global_config']['default_pos'].split()
+                    pos[0] = str(float(pos[0]) + character_index * 2)
+                    pos = " ".join(pos)
+                tppos make_selector(tag=character_tag) pos
+            DEFINITIONS = {}
+            for dialog_index, dialog in enumerate(rpg_data["dialogs"]):
+                function ~/dialog/{dialog_index}:
+                    if isinstance(dialog, str):
+                        narration dialog
+                    
+            show_floating_dialog test hi1
+            show_floating_dialog test2 hi2
+            
+def init_other():
+    append function ./init:
+        say loaded
+
+    advancement ./trigger/root:
+        criteria:
+            impossible:
+                trigger: "impossible"
+    
+    append function ./tick:
+        advancement revoke @a from ./trigger/root
+                
+def main():
+    init_move_you()
+    init_rpg()
+    init_scoreboards()
+    init_other()
+
+main()
+
