@@ -111,8 +111,8 @@ macro show_floating_dialog character_id=brigadier:string{"type": "word"} content
             text: {translate: content}
             Tags: ["floating_dialog", "text", character_id.value]
 
-macro narration text=brigadier:string{"type": "greedy"}:
-    tellraw @a {translate: "%s", color: "dark_gray", with: [(text.value)]}
+macro narration text=minecraft:nbt_tag:
+    tellraw @a {translate: "%s", color: "dark_gray", with: [text]}
 
 AGME_GLOBAL = "agme.global"
 
@@ -300,7 +300,7 @@ def init_rpg():
                         else:
                             narration dialog
                             is_wait = 'wait'
-                    if isinstance(dialog, dict):
+                    elif isinstance(dialog, dict):
                         if 'define' in dialog:
                             DEFINITIONS.update(dialog['define'])
                         if 'sound' in dialog:
@@ -316,6 +316,8 @@ def init_rpg():
                         if 'narration' in dialog:
                             narration dialog['narration']
                             is_wait = 'wait'
+                        if 'no_wait' in dialog and dialog['no_wait']:
+                            is_wait = 'fallthrough'
                         if 'menu' in dialog:
                             OPTION_JUMPS[dialog_index] = {}
                             for option in dialog['menu']:
