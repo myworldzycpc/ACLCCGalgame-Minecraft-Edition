@@ -7,6 +7,12 @@
       "src"
     ]
   },
+  "resource_pack": {
+    "name": "aclccgalgame-resourcepack",
+    "load": [
+      "src"
+    ]
+  },
   "pipeline": ["mecha"],
   "require": ["bolt"],
   "output": "build",

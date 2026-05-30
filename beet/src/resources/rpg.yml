@@ -23,22 +23,19 @@ dialogs:
   - l: 话说小绿君你怎么成群主了？
   - 这是旁白。
   - m: 请选择选项
-    options:
-      - 选项A: option_a
-      - 选项B: option_b
+    menu:
+      - 选项A: 
+        - 你选择了A。
+      - 选项B: 
+        - 你选择了B。
       - 选项C: option_c
-  - label: option_a
-  - 你选择了A。
-  - goto: next
-  - label: option_b
-  - 你选择了B。
-  - goto: next
-  - label: option_c
-  - 你选择了C。
-  - goto: next
-  - label: next
+  - 如果选的不是C会看到这个
   - sound: music.credits
   - l: 那我们就先聊聊天吧。
   - r: 好的，请问您有什么问题？
   - stopsound
   - m: 我想问一下，ACLCC群是什么？
+  - return
+
+  - label: option_c
+  - m: 你选择了C。

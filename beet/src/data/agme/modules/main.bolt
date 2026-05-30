@@ -1,6 +1,17 @@
 import yaml
 from contextlib import contextmanager
 from mecha import AstSelector, AstSelectorArgument, AstString
+import sys
+from importlib.util import spec_from_file_location
+from importlib.util import module_from_spec
+
+def import_module_from_file(name):
+    spec = spec_from_file_location(name, ctx.directory / f"src/data/agme/modules/{name}.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+process = import_module_from_file("process")
 
 DIRECTIONS = ["left", "right", "forward", "backward"]
 ACTIONS = ["jump", "sneak", "sprint"]
@@ -48,10 +59,6 @@ function_tag tick:
 function_tag load:
     values:
         - (./init)
-
-PHASE_LIST = []
-ACTION_LIST = []
-LABELS = {}
 
 def init_scoreboards():
     prepend function ./init:
@@ -105,7 +112,7 @@ macro show_floating_dialog character_id=brigadier:string{"type": "word"} content
             Tags: ["floating_dialog", "text", character_id.value]
 
 macro narration text=brigadier:string{"type": "greedy"}:
-    say f"[narration] {text.value}"
+    tellraw @a {translate: "%s", color: "dark_gray", with: [(text.value)]}
 
 AGME_GLOBAL = "agme.global"
 
@@ -122,6 +129,9 @@ class AGMEGlobalScore():
 
     def get(self):
         scoreboard players get self.name AGME_GLOBAL
+    
+    def reset(self):
+        scoreboard players reset self.name AGME_GLOBAL
 
     @contextmanager
     def __branch__(self):
@@ -164,11 +174,36 @@ macro nested_macro body=mecha:nested_root:
     with storage agme:args:
         yield body
 
+class RPGCharacter:
+    def __init__(self, id, name, pos=None):
+        self.id = id
+        self.name = name
+        self.pos = pos
+
+CHARACTERS = {}
+
+function ./util/rpg_say_effect:
+    effect clear @e[tag=character] glowing
+    effect give @s glowing infinite 0 true
+    playsound entity.villager.ambient master @a ~ ~ ~ 
+
+macro rpg_say character_id=brigadier:string{"type": "word"} content=minecraft:nbt_tag:
+    as @n[tag=character,tag=character_id.value] at @s run function ./util/rpg_say_effect
+    tellraw @a:
+        translate: "%s: %s"
+        with:
+            - {translate: "%s", with: [(getattr(CHARACTERS[character_id.value], "name", character_id.value))], color: "dark_aqua"}
+            - {translate: "%s", with: [content], color: "gray"}
+
 def init_rpg():
-    add_trigger wait_for_continue_trigger
+
+    global CHARACTERS
+
+    add_trigger wait_for_continue_trigger menu_option_trigger
     
     next_continue_id = AGMEGlobalScore("next_continue_id")
     next_continue_waiting = AGMEGlobalScore("next_continue_waiting")
+    current_action = AGMEGlobalScore("current_action")
 
     function ./util/wait_for_continue:
         next_continue_id.add()
@@ -180,21 +215,29 @@ def init_rpg():
         scoreboard players reset * wait_for_continue_trigger
 
     function ./util/wait_for_continue_trigger:
-        say 继续
+        # say 继续
         next_continue_waiting.set(0)
+        function ./util/next_action
+    
+    function ./util/next_action:
+        current_action.add()
+        function ./util/replay_action
         
+    function ./util/replay_action:
+        store result storage agme:args "current_action" int 1:
+            current_action.get()
+        nested_macro:
+            raw ("$function " + ./rpg/dialog + '/$(current_action)')
 
-    append function ./tick:
-        execute function ~/rpg:
-            trigger_scb enable wait_for_continue_trigger
-            if next_continue_waiting:
-                as @a if score @s wait_for_continue_trigger = next_continue_id.name AGME_GLOBAL:
-                    return run function ./util/wait_for_continue_trigger
+    function ./rpg/start:
+        current_action.set(0)
+        function ./util/replay_action
 
+    OPTION_JUMPS = {}
 
     append function ./init:
         execute function ~/rpg:
-            # data modify storage sim:global time_whell set value ([[]] * 256)
+            CHARACTERS = {}
             for character_index, character in enumerate(rpg_data["characters"]):
                 character_tag = ["character", character['id']]
                 trigger_id = ./trigger/player_interacted_with_entity/character + "/" + character['id']
@@ -228,15 +271,121 @@ def init_rpg():
                             Tags: character_tag
                             height: 1.81
                             width: 0.61
+                if character['id'] in CHARACTERS:
+                    raise ValueError(f"Character {character['id']} already exists")
+                CHARACTERS[character['id']] = RPGCharacter(character['id'], character['name'], pos)
+
+            DIALOGS = process.process_dialogs(rpg_data["dialogs"])
+
+            LABELS = {}
+
+            for dialog_index, dialog in enumerate(DIALOGS):
+                if 'label' in dialog:
+                    if dialog['label'] not in LABELS:
+                        LABELS[dialog['label']] = dialog_index
+                    else:
+                        raise ValueError(f"Dialog {dialog['label']} already exists")
+
+            # say LABELS
+
             DEFINITIONS = {}
-            for dialog_index, dialog in enumerate(rpg_data["dialogs"]):
-                function ~/dialog/{dialog_index}:
+            next_option_id = 1
+
+            for dialog_index, dialog in enumerate(DIALOGS):
+                function (./rpg/dialog + '/' + str(dialog_index)):
+                    is_wait = 'fallthrough'
                     if isinstance(dialog, str):
-                        narration dialog
+                        if dialog == 'stopsound':
+                            stopsound @a
+                        else:
+                            narration dialog
+                            is_wait = 'wait'
+                    if isinstance(dialog, dict):
+                        if 'define' in dialog:
+                            DEFINITIONS.update(dialog['define'])
+                        if 'sound' in dialog:
+                            playsound dialog['sound'] master @a ~ ~ ~
+                        for abbr in DEFINITIONS:
+                            if abbr in dialog:
+                                rpg_say DEFINITIONS[abbr] dialog[abbr]
+                                is_wait = 'wait'
+                        for char_id in CHARACTERS:
+                            if char_id in dialog:
+                                rpg_say char_id dialog[char_id]
+                                is_wait = 'wait'
+                        if 'narration' in dialog:
+                            narration dialog['narration']
+                            is_wait = 'wait'
+                        if 'menu' in dialog:
+                            OPTION_JUMPS[dialog_index] = {}
+                            for option in dialog['menu']:
+                                for key, value in option.items():
+                                    jump_index = LABELS[value]
+                                    OPTION_JUMPS[dialog_index][next_option_id] = (jump_index, key)
+                                    tellraw @a:
+                                        translate: "- %s"
+                                        with:
+                                            -   translate: "[%s]"
+                                                with: [key]
+                                                color: "gray"
+                                                click_event:
+                                                    action: "run_command"
+                                                    command: (f"/trigger menu_option_trigger set {next_option_id}")
+                                    next_option_id += 1
+                            is_wait = 'none'
+                        if 'jump' in dialog:
+                            label = dialog['jump']
+                            if label in LABELS:
+                                jump_index = LABELS[label]
+                                current_action.set(jump_index)
+                                function ./util/replay_action
+                                is_wait = 'none'
+                            else:
+                                raise ValueError(f"Label {label} not found")
+                    if is_wait == 'wait':
                         function ./util/wait_for_continue
+                    elif is_wait == 'fallthrough':
+                        function ./util/next_action
+
                     
             show_floating_dialog test hi1
             show_floating_dialog test2 hi2
+
+    
+    append function ./tick:
+        execute function ~/rpg:
+            trigger_scb enable wait_for_continue_trigger
+            trigger_scb enable menu_option_trigger
+            if next_continue_waiting:
+                as @a if score @s wait_for_continue_trigger = next_continue_id.name AGME_GLOBAL:
+                    return run function ./util/wait_for_continue_trigger
+            as @a if score @s menu_option_trigger matches 1..:
+                founded = AGMEGlobalScore("founded")
+                founded.reset()
+                execute function ~/check_founded:
+                    for menu_index, options in OPTION_JUMPS.items():
+                        if score current_action.name AGME_GLOBAL matches menu_index run return run function ~/menu/{menu_index}:
+                            for option_index, jump_info in options.items():
+                                if score @s menu_option_trigger matches option_index run return run function (./rpg/option + '/' + str(option_index)):
+                                    founded.set(1)
+                                    tellraw @a:
+                                        translate: "%s 选择了 %s"
+                                        with:
+                                            -   selector: "@s"
+                                            -   translate: "%s"
+                                                with: [jump_info[1]]
+                                                color: "gray"
+                                        color: "gold"
+                                    current_action.set(jump_info[0])
+                                    function ./util/replay_action
+                unless score founded.name AGME_GLOBAL matches 1..:
+                    tellraw @s:
+                        translate: "你目前尚无法选择这个"
+                        color: "red"
+                scoreboard players reset * menu_option_trigger
+
+
+
             
 def init_other():
     scb_obj_add agme.global
