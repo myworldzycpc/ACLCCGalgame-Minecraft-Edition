@@ -357,9 +357,9 @@ def init_rpg():
             trigger_scb enable wait_for_continue_trigger
             trigger_scb enable menu_option_trigger
             if next_continue_waiting:
-                as @a if score @s wait_for_continue_trigger = next_continue_id.name AGME_GLOBAL:
+                as @a at @s if score @s wait_for_continue_trigger = next_continue_id.name AGME_GLOBAL:
                     return run function ./util/wait_for_continue_trigger
-            as @a if score @s menu_option_trigger matches 1..:
+            as @a at @s if score @s menu_option_trigger matches 1..:
                 founded = AGMEGlobalScore("founded")
                 founded.reset()
                 execute function ~/check_founded:
