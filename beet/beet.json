@@ -12,7 +12,7 @@
   "output": "build",
   "meta": {
     "bolt": {
-      "entrypoint": "demo:main"
+      "entrypoint": "agme:main"
     }
   }
 }

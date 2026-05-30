@@ -1,4 +1,5 @@
 import yaml
+from contextlib import contextmanager
 from mecha import AstSelector, AstSelectorArgument, AstString
 
 DIRECTIONS = ["left", "right", "forward", "backward"]
@@ -6,6 +7,7 @@ ACTIONS = ["jump", "sneak", "sprint"]
 DIR_MAP = {forward: (0, 1, 0), backward: (0, -1, 180), left: (1, 0, -90), right: (-1, 0, 90)}
 
 SCOREBOARDS = set()
+TRIGGER_LIST = set()
 
 DEBUG = True
 
@@ -16,6 +18,16 @@ macro debug_say message=brigadier:string{"type": "greedy"}:
 macro scb_obj_add scb=brigadier:string{"type": "greedy"}:
     for i in scb.value.split():
         SCOREBOARDS.add(i)
+
+macro add_trigger scb=brigadier:string{"type": "greedy"}:
+    for i in scb.value.split():
+        TRIGGER_LIST.add(i)
+
+macro trigger_scb enable scb=brigadier:string{"type": "word"} selector=minecraft:entity:
+    scoreboard players enable selector scb
+
+macro trigger_scb enable scb=brigadier:string{"type": "word"}:
+    trigger_scb enable scb @a
 
 with open("src/resources/rpg.yml", 'r', encoding='utf-8') as f:
     rpg_data = yaml.safe_load(f)
@@ -46,7 +58,8 @@ def init_scoreboards():
         execute function ~/scoreboards:
             for i in SCOREBOARDS:
                 scoreboard objectives add i dummy
-
+            for i in TRIGGER_LIST:
+                scoreboard objectives add i trigger
 
 def init_move_you():
     append function ./tick:
@@ -94,6 +107,37 @@ macro show_floating_dialog character_id=brigadier:string{"type": "word"} content
 macro narration text=brigadier:string{"type": "greedy"}:
     say f"[narration] {text.value}"
 
+AGME_GLOBAL = "agme.global"
+
+class AGMEGlobalScore():
+    def __init__(self, name, enum: dict[str, int] | None = None):
+        self.name = name
+        self.enum = enum or {}
+    
+    def add(self, value=1):
+        scoreboard players add self.name AGME_GLOBAL value
+
+    def set(self, value):
+        scoreboard players set self.name AGME_GLOBAL value
+
+    def get(self):
+        scoreboard players get self.name AGME_GLOBAL
+
+    @contextmanager
+    def __branch__(self):
+        if score self.name AGME_GLOBAL matches 1..:
+            yield True
+
+    # def enum(self, value: str | int):
+    #     if isinstance(value, str):
+    #         return self.enum[value]
+    #     elif isinstance(value, int):
+    #         for key, val in self.enum.items():
+    #             if val == value:
+    #                 return key
+    #     else:
+    #         raise ValueError("Invalid enum value")
+
 def make_selector(var="n", **kwargs):
     args = []
     for key, values in kwargs.items():
@@ -115,8 +159,38 @@ def make_selector(var="n", **kwargs):
 #     for tag in tags[1:]:
 #         result.append(f"{result[-1]}.{tag}")
 
+
+macro nested_macro body=mecha:nested_root:
+    with storage agme:args:
+        yield body
+
 def init_rpg():
-    scb_obj_add current_phase last_action_time
+    add_trigger wait_for_continue_trigger
+    
+    next_continue_id = AGMEGlobalScore("next_continue_id")
+    next_continue_waiting = AGMEGlobalScore("next_continue_waiting")
+
+    function ./util/wait_for_continue:
+        next_continue_id.add()
+        store result storage agme:args continue_id int 1:
+            next_continue_id.get()
+        nested_macro:
+            $tellraw @a {translate: "[点击继续]", color: "gray", click_event: {action: "run_command", command: "/trigger wait_for_continue_trigger set $(continue_id)"}}
+        next_continue_waiting.set(1)
+        scoreboard players reset * wait_for_continue_trigger
+
+    function ./util/wait_for_continue_trigger:
+        say 继续
+        next_continue_waiting.set(0)
+        
+
+    append function ./tick:
+        execute function ~/rpg:
+            trigger_scb enable wait_for_continue_trigger
+            if next_continue_waiting:
+                as @a if score @s wait_for_continue_trigger = next_continue_id.name AGME_GLOBAL:
+                    return run function ./util/wait_for_continue_trigger
+
 
     append function ./init:
         execute function ~/rpg:
@@ -159,11 +233,14 @@ def init_rpg():
                 function ~/dialog/{dialog_index}:
                     if isinstance(dialog, str):
                         narration dialog
+                        function ./util/wait_for_continue
                     
             show_floating_dialog test hi1
             show_floating_dialog test2 hi2
             
 def init_other():
+    scb_obj_add agme.global
+
     append function ./init:
         say loaded
 
@@ -178,8 +255,8 @@ def init_other():
 def main():
     init_move_you()
     init_rpg()
-    init_scoreboards()
     init_other()
+    init_scoreboards()
 
 main()
 
